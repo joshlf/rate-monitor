@@ -5,9 +5,11 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -18,54 +20,50 @@ const (
 	buflen = 1024 * 1024 // 1MB
 )
 
-const (
-	exit_usage = iota + 1
-	exit_io
+var (
+	unit     = flag.String("unit", "KB", "Unit for displaying rate. Options are B, KB, KiB, MB, MiB.")
+	progress = flag.Bool("progress", false, "Display the total amount of data copied so far.")
 )
 
-var flags = map[string]int{
-	"-B":   1,
-	"-KB":  1000,
-	"-KiB": 1024,
-	"-MB":  1000 * 1000,
-	"-MiB": 1024 * 1024,
+const (
+	EXIT_USAGE = 2 + iota
+	EXIT_IO
+)
+
+var units = map[string]int{
+	"B":   1,
+	"KB":  1000,
+	"KiB": 1024,
+	"MB":  1000 * 1000,
+	"MiB": 1024 * 1024,
 }
 
 func main() {
-	unit, size := "KB", 1000
-	if len(os.Args) == 2 {
-		var ok bool
-		size, ok = flags[os.Args[1]]
-		if !ok {
-			fmt.Fprintf(os.Stderr, usage, os.Args[0])
-			os.Exit(exit_usage)
-		}
-
-		// Do this after validating that
-		// the string is in the map (and
-		// thus at least 1 character long)
-		unit = os.Args[1][1:]
-	} else if len(os.Args) > 2 {
-		fmt.Fprintf(os.Stderr, usage, os.Args[0])
-		os.Exit(exit_usage)
+	flag.Parse()
+	size, ok := units[*unit]
+	if !ok {
+		flag.Usage()
+		os.Exit(EXIT_USAGE)
 	}
 
-	r := newRateReader(os.Stdin, size, unit)
+	r := newRateReader(os.Stdin, size, *unit, *progress)
 	defer r.Close()
 	_, err := io.Copy(os.Stdout, r)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "io error: %v\n", err)
-		os.Exit(exit_io)
+		os.Exit(EXIT_IO)
 	}
 }
 
 type rateReader struct {
 	r  io.Reader
 	t0 time.Time
+	n  int64
 	nn int64
 
-	size int
-	unit string
+	size     int
+	unit     string
+	progress bool
 
 	err error
 
@@ -112,22 +110,51 @@ func (r *rateReader) print() {
 			time.Sleep(500 * time.Millisecond)
 			t1 := time.Now()
 			nn := atomic.SwapInt64(&r.nn, 0)
+			r.n += nn
 
 			delta := t1.Sub(r.t0)
 			r.t0 = t1
 
 			bps := float64(nn) / delta.Seconds()
 			fmt.Fprintf(os.Stderr, "\r%8.4f %s/s", bps/float64(r.size), r.unit)
+
+			if r.progress {
+				size, unit := 0, ""
+				// If the rate is displayed in a base-10
+				// unit, do the same for the progress,
+				// and the same for base-2.
+				if strings.Contains(r.unit, "i") {
+					switch {
+					case r.n < 1024:
+						size, unit = 1, "B"
+					case r.n < 1024*1024:
+						size, unit = 1024, "KiB"
+					default:
+						size, unit = 1024*1024, "MiB"
+					}
+				} else {
+					switch {
+					case r.n < 1000:
+						size, unit = 1, "B"
+					case r.n < 1000*1000:
+						size, unit = 1000, "KB"
+					default:
+						size, unit = 1000*1000, "MB"
+					}
+				}
+				fmt.Fprintf(os.Stderr, " (%.4f %s total)", float64(r.n)/float64(size), unit)
+			}
 		}
 	}
 }
 
-func newRateReader(r io.Reader, size int, unit string) *rateReader {
+func newRateReader(r io.Reader, size int, unit string, progress bool) *rateReader {
 	ret := &rateReader{r: r,
-		t0:   time.Now(),
-		size: size,
-		unit: unit,
-		exit: make(chan struct{}, 1), // Buffered so that Close() is non-blocking
+		t0:       time.Now(),
+		size:     size,
+		unit:     unit,
+		progress: progress,
+		exit:     make(chan struct{}, 1), // Buffered so that Close() is non-blocking
 	}
 	go ret.print()
 	return ret
