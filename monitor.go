@@ -15,13 +15,11 @@ import (
 )
 
 const (
-	usage = "Usage: %v [-B | -KB | -KiB | -MB | -MiB] [-s | --silent]\n"
-
 	buflen = 1024 * 1024 // 1MB
 )
 
 var (
-	unit     = flag.String("unit", "KB", "Unit for displaying rate. Options are B, KB, KiB, MB, MiB.")
+	unit     = flag.String("unit", "KB", "Unit for displaying rate. Options are B, KB, KiB, MB, MiB, GB, GiB.")
 	progress = flag.Bool("progress", false, "Display the total amount of data copied so far.")
 )
 
@@ -36,6 +34,8 @@ var units = map[string]int{
 	"KiB": 1024,
 	"MB":  1000 * 1000,
 	"MiB": 1024 * 1024,
+	"GB":  1000 * 1000 * 1000,
+	"GiB": 1024 * 1024 * 1024,
 }
 
 func main() {
@@ -129,8 +129,10 @@ func (r *rateReader) print() {
 						size, unit = 1, "B"
 					case r.n < 1024*1024:
 						size, unit = 1024, "KiB"
-					default:
+					case r.n < 1024*1024*1024:
 						size, unit = 1024*1024, "MiB"
+					default:
+						size, unit = 1024*1024*1024, "GiB"
 					}
 				} else {
 					switch {
@@ -138,8 +140,10 @@ func (r *rateReader) print() {
 						size, unit = 1, "B"
 					case r.n < 1000*1000:
 						size, unit = 1000, "KB"
-					default:
+					case r.n < 1000*1000*1000:
 						size, unit = 1000*1000, "MB"
+					default:
+						size, unit = 1000*1000*1000, "GB"
 					}
 				}
 				fmt.Fprintf(os.Stderr, " (%.4f %s total)", float64(r.n)/float64(size), unit)
