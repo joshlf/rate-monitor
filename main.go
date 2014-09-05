@@ -5,28 +5,33 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
+	"github.com/docopt/docopt-go"
 	"github.com/synful/rate"
 )
 
-var (
-	unit     = flag.String("unit", "KB", "Unit for displaying rate. Options are B, KB, KiB, MB, MiB, GB, GiB.")
-	progress = flag.Bool("progress", false, "Display the total amount of data copied so far.")
+const (
+	EXIT_IO = 2
 )
 
-const (
-	EXIT_USAGE = 2 + iota
-	EXIT_IO
-)
+const usage = `Usage: rate-monitor [-p] [--B | --kB | --KiB | --MB | --MiB | --GB | --GiB]
+
+  --B           show the rate in B/s
+  --kB          show the rate in kB/s
+  --KiB         show the rate in KiB/s (this is the default)
+  --MB          show the rate in MB/s
+  --MiB         show the rate in MiB/s
+  --GB          show the rate in GB/s
+  --GiB         show the rate in GiB/s
+  -p --progress show the total number of bytes copied in addition to the rate`
 
 var units = map[string]int{
 	"B":   1,
-	"KB":  1000,
+	"kB":  1000,
 	"KiB": 1024,
 	"MB":  1000 * 1000,
 	"MiB": 1024 * 1024,
@@ -35,16 +40,18 @@ var units = map[string]int{
 }
 
 func main() {
-	flag.Parse()
-	size, ok := units[*unit]
-	if !ok {
-		flag.Usage()
-		os.Exit(EXIT_USAGE)
+	args, err := docopt.Parse(usage, nil, true, "", false)
+	unit, size := "KiB", units["KiB"]
+	for unt, sze := range units {
+		if args["--"+unt].(bool) {
+			unit, size = unt, sze
+			break
+		}
 	}
 
-	r := rate.MakeMonitorReaderFunc(os.Stdin, 0, rateFn(size, *unit, *progress))
+	r := rate.MakeMonitorReaderFunc(os.Stdin, 0, rateFn(size, unit, args["-p"].(bool)))
 	defer r.Close()
-	_, err := io.Copy(os.Stdout, r)
+	_, err = io.Copy(os.Stdout, r)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "io error: %v\n", err)
 		os.Exit(EXIT_IO)
@@ -56,34 +63,35 @@ func rateFn(size int, unit string, progress bool) func(r rate.Rate) {
 		fmt.Fprintf(os.Stderr, "\r%8.4f %s/s\033[K", r.Rate/float64(size), unit)
 
 		if progress {
-			size, unit := 0, ""
-			// If the rate is displayed in a base-10
-			// unit, do the same for the progress,
-			// and the same for base-2.
-			if strings.Contains(unit, "i") {
+			sizeTmp, unitTmp := 0, ""
+
+			// If the rate is displayed in an SI unit,
+			// then display the progress in SI units,
+			// and likewise for IEC units.
+			if strings.Contains(unit, "i") || unit == "B" {
 				switch {
 				case r.Total < 1024:
-					size, unit = 1, "B"
+					sizeTmp, unitTmp = 1, "B"
 				case r.Total < 1024*1024:
-					size, unit = 1024, "KiB"
+					sizeTmp, unitTmp = 1024, "KiB"
 				case r.Total < 1024*1024*1024:
-					size, unit = 1024*1024, "MiB"
+					sizeTmp, unitTmp = 1024*1024, "MiB"
 				default:
-					size, unit = 1024*1024*1024, "GiB"
+					sizeTmp, unitTmp = 1024*1024*1024, "GiB"
 				}
 			} else {
 				switch {
 				case r.Total < 1000:
-					size, unit = 1, "B"
+					sizeTmp, unitTmp = 1, "B"
 				case r.Total < 1000*1000:
-					size, unit = 1000, "KB"
+					sizeTmp, unitTmp = 1000, "kB"
 				case r.Total < 1000*1000*1000:
-					size, unit = 1000*1000, "MB"
+					sizeTmp, unitTmp = 1000*1000, "MB"
 				default:
-					size, unit = 1000*1000*1000, "GB"
+					sizeTmp, unitTmp = 1000*1000*1000, "GB"
 				}
 			}
-			fmt.Fprintf(os.Stderr, " (%.4f %s total)\033[K", float64(r.Total)/float64(size), unit)
+			fmt.Fprintf(os.Stderr, " (%.4f %s total)\033[K", float64(r.Total)/float64(sizeTmp), unitTmp)
 		}
 	}
 }
