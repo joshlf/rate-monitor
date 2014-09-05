@@ -13,9 +13,16 @@ A simple rate monitoring command-line utility. Stdin is piped to stdout, and the
 
 Usage:
 ```
-Usage of rate-monitor:
-  -progress=false: Display the total amount of data copied so far.
-  -unit="KB": Unit for displaying rate. Options are B, KB, KiB, MB, MiB, GB, GiB.
+Usage: rate-monitor [-p] [--B | --kB | --KiB | --MB | --MiB | --GB | --GiB]
+
+  --B           show the rate in B/s
+  --kB          show the rate in kB/s
+  --KiB         show the rate in KiB/s (this is the default)
+  --MB          show the rate in MB/s
+  --MiB         show the rate in MiB/s
+  --GB          show the rate in GB/s
+  --GiB         show the rate in GiB/s
+  -p --progress show the total number of bytes copied in addition to the rate
 ```
 
 Installation: `go get github.com/joshlf13/rate-monitor`
